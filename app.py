@@ -18,16 +18,23 @@ from fastapi.middleware.cors import CORSMiddleware
 import aiofiles
 
 # Configuration
-CONVERSION_TIMEOUT = 60  # seconds
+CONVERSION_TIMEOUT = int(os.getenv('CONVERSION_TIMEOUT', '45'))  # Reduced for high volume
 MAX_WORKERS = int(os.getenv('MAX_WORKERS', '4'))  # Configurable via environment
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 TEMP_DIR = tempfile.gettempdir()
 
-# Worker recommendations based on system specs:
-# - Light system (2-4 cores, 4-8GB RAM): 2-4 workers
-# - Medium system (4-8 cores, 8-16GB RAM): 4-8 workers  
-# - Heavy system (8+ cores, 16+ GB RAM): 8-15 workers
-# Note: LibreOffice may have issues with >10 concurrent instances
+# High-volume deployment recommendations:
+# Target: 20-60 conversions/minute
+# - For 20/min: 8-12 workers (avg 25s per conversion)
+# - For 40/min: 15-20 workers (avg 20s per conversion) 
+# - For 60/min: 25-30 workers (avg 15s per conversion)
+# 
+# System requirements for high volume:
+# - CPU: 16+ cores (2 cores per 3-4 workers)
+# - RAM: 32+ GB (1-2GB per worker)
+# - SSD storage for temp files
+# - LibreOffice limit: Max 15-20 concurrent instances
+# - Consider multiple service instances with load balancer
 
 # Setup logging
 logging.basicConfig(
@@ -234,6 +241,20 @@ engines = [libre_engine, word_engine]
 available_engines = [engine for engine in engines if engine.is_available()]
 
 logger.info(f"Available engines: {[engine.name for engine in available_engines]}")
+logger.info(f"Configuration: {MAX_WORKERS} workers, {CONVERSION_TIMEOUT}s timeout")
+
+# Calculate theoretical capacity
+if available_engines:
+    theoretical_max = (MAX_WORKERS * 60) / CONVERSION_TIMEOUT
+    realistic_throughput = theoretical_max * 0.7  # Account for overhead
+    logger.info(f"Theoretical capacity: {theoretical_max:.1f} conversions/minute")
+    logger.info(f"Realistic throughput: {realistic_throughput:.1f} conversions/minute")
+    
+    if realistic_throughput < 20:
+        logger.warning(f"Current config may not handle high volume (20+ conversions/min)")
+        logger.warning(f"Consider increasing MAX_WORKERS or reducing CONVERSION_TIMEOUT")
+else:
+    logger.error("No conversion engines available!")
 
 # Cleanup old conversions periodically
 async def cleanup_old_conversions():
@@ -591,6 +612,21 @@ async def queue_status():
     avg_processing_time = 30  # seconds per conversion
     estimated_wait_minutes = max(0, (queued + processing) * avg_processing_time // 60)
     
+    # High volume status indicators
+    current_throughput = (MAX_WORKERS * 60) / CONVERSION_TIMEOUT * 0.7
+    is_high_volume_ready = current_throughput >= 20
+    
+    if (queued + processing) == 0:
+        status_message = "Service siap digunakan"
+    elif (queued + processing) < 5:
+        status_message = "Antrian sedikit"
+    elif (queued + processing) < 15:
+        status_message = "Antrian sedang"
+    elif (queued + processing) < 30:
+        status_message = "Antrian panjang"
+    else:
+        status_message = "Antrian sangat panjang - pertimbangkan scaling"
+    
     return {
         "success": True,
         "service_status": "online" if available_engines else "offline",
@@ -602,9 +638,9 @@ async def queue_status():
         "queue_size": queued + processing,
         "estimated_wait_minutes": estimated_wait_minutes,
         "available_engines": [engine.name for engine in available_engines],
-        "message": "Service siap digunakan" if (queued + processing) == 0 else 
-                  ("Antrian sedikit" if (queued + processing) < 5 else 
-                   ("Antrian sedang" if (queued + processing) < 15 else "Antrian panjang"))
+        "current_throughput_per_minute": round(current_throughput, 1),
+        "high_volume_ready": is_high_volume_ready,
+        "message": status_message
     }
 
 
@@ -631,9 +667,15 @@ async def health_check():
             "memory_available_gb": round(memory.available / (1024**3), 2),
             "cpu_cores": psutil.cpu_count()
         },
+        "performance_metrics": {
+            "theoretical_max_per_minute": round((MAX_WORKERS * 60) / CONVERSION_TIMEOUT, 1),
+            "realistic_throughput_per_minute": round((MAX_WORKERS * 60) / CONVERSION_TIMEOUT * 0.7, 1),
+            "current_queue_wait_minutes": round(active_conversions * (CONVERSION_TIMEOUT / 60) / MAX_WORKERS, 1) if MAX_WORKERS > 0 else 0
+        },
         "recommendations": {
             "current_load": "high" if active_conversions > MAX_WORKERS * 0.8 else "medium" if active_conversions > MAX_WORKERS * 0.5 else "low",
-            "suggested_action": "Consider increasing workers" if active_conversions > MAX_WORKERS * 0.8 and cpu_percent < 80 and memory.percent < 80 else "Current workers sufficient"
+            "suggested_action": "Consider increasing workers" if active_conversions > MAX_WORKERS * 0.8 and cpu_percent < 80 and memory.percent < 80 else "Current workers sufficient",
+            "high_volume_ready": "Yes" if (MAX_WORKERS * 60) / CONVERSION_TIMEOUT * 0.7 >= 20 else "No - increase workers"
         },
         "timestamp": datetime.now().isoformat()
     }
