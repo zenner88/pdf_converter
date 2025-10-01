@@ -6,6 +6,7 @@ import shutil
 import uuid
 import platform
 import logging
+import time
 from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime
@@ -96,14 +97,37 @@ app.add_middleware(
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
 )
 
 # Thread pool for conversion tasks
 executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
-# Conversion status tracking
+# Global conversion status tracking
 conversion_status: Dict[str, Dict[str, Any]] = {}
+
+# Windows-safe file operations
+def safe_remove_file(file_path: str, max_retries: int = 3) -> bool:
+    """Safely remove file with retry logic for Windows file locking"""
+    if not os.path.exists(file_path):
+        return True
+    
+    for attempt in range(max_retries):
+        try:
+            # Set file permissions before removal
+            os.chmod(file_path, 0o666)
+            os.remove(file_path)
+            return True
+        except PermissionError:
+            if attempt < max_retries - 1:
+                logger.warning(f"File locked, retrying removal of {file_path} (attempt {attempt + 1})")
+                time.sleep(0.5 * (attempt + 1))  # Increasing delay
+            else:
+                logger.error(f"Failed to remove {file_path} after {max_retries} attempts")
+                return False
+        except Exception as e:
+            logger.error(f"Error removing {file_path}: {e}")
+            return False
+    return False
 
 
 class ConversionEngine:
@@ -338,10 +362,7 @@ async def cleanup_old_conversions():
                 # Clean up files
                 for path in [status.get("input_path"), status.get("output_path")]:
                     if path and os.path.exists(path):
-                        try:
-                            os.remove(path)
-                        except Exception as e:
-                            logger.warning(f"Failed to cleanup {path}: {e}")
+                        safe_remove_file(path)
                 
                 # Remove from status
                 del conversion_status[conv_id]
@@ -371,10 +392,7 @@ async def lifespan(app: FastAPI):
     for status in conversion_status.values():
         for path in [status.get("input_path"), status.get("output_path")]:
             if path and os.path.exists(path):
-                try:
-                    os.remove(path)
-                except:
-                    pass
+                safe_remove_file(path)
 
 # Set lifespan after engines are initialized
 app.router.lifespan_context = lifespan
@@ -484,7 +502,7 @@ async def convert_docx(
         # Cleanup on error
         for path in [temp_input, temp_output]:
             if os.path.exists(path):
-                os.remove(path)
+                safe_remove_file(path)
         
         logger.error(f"Upload error: {e}")
         raise HTTPException(status_code=500, detail="Failed to process upload")
@@ -558,7 +576,7 @@ async def convert_dua(
         # Cleanup on error
         for path in [temp_input, temp_output]:
             if os.path.exists(path):
-                os.remove(path)
+                safe_remove_file(path)
         
         logger.error(f"ConvertDua error: {e}")
         return JSONResponse(
@@ -656,10 +674,7 @@ async def cleanup_conversion(conversion_id: str):
     # Remove files
     for path in [status.get("input_path"), status.get("output_path")]:
         if path and os.path.exists(path):
-            try:
-                os.remove(path)
-            except Exception as e:
-                logger.warning(f"Failed to remove {path}: {e}")
+            safe_remove_file(path)
     
     # Remove from status tracking
     del conversion_status[conversion_id]
