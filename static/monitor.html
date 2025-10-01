@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Converter - Real-time Monitor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+        
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .card h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+            display: flex;
+            align-items: center;
+        }
+        
+        .card h3::before {
+            content: '';
+            width: 4px;
+            height: 20px;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            margin-right: 10px;
+            border-radius: 2px;
+        }
+        
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .metric:last-child {
+            border-bottom: none;
+        }
+        
+        .metric-label {
+            color: #666;
+            font-weight: 500;
+        }
+        
+        .metric-value {
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .status-online { background-color: #4CAF50; }
+        .status-warning { background-color: #FF9800; }
+        .status-error { background-color: #F44336; }
+        
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background-color: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 5px;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4CAF50, #8BC34A);
+            transition: width 0.3s ease;
+        }
+        
+        .queue-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        
+        .queue-table th,
+        .queue-table td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .queue-table th {
+            background-color: #f5f5f5;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .queue-table tr:hover {
+            background-color: #f9f9f9;
+        }
+        
+        .refresh-btn {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 50px;
+            padding: 15px 25px;
+            font-size: 16px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            transition: transform 0.2s ease;
+        }
+        
+        .refresh-btn:hover {
+            transform: translateY(-2px);
+        }
+        
+        .auto-refresh {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .auto-refresh label {
+            color: white;
+            font-size: 1.1em;
+        }
+        
+        .auto-refresh input {
+            margin-left: 10px;
+            transform: scale(1.2);
+        }
+        
+        .loading {
+            text-align: center;
+            color: white;
+            font-size: 1.2em;
+            margin: 20px 0;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .loading {
+            animation: pulse 1.5s infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 PDF Converter Monitor</h1>
+            <p>Real-time monitoring dashboard</p>
+        </div>
+        
+        <div class="auto-refresh">
+            <label>
+                <input type="checkbox" id="autoRefresh" checked> Auto-refresh every 5 seconds
+            </label>
+        </div>
+        
+        <div id="loading" class="loading">Loading system status...</div>
+        
+        <div id="dashboard" class="dashboard" style="display: none;">
+            <!-- Service Status Card -->
+            <div class="card">
+                <h3>🚀 Service Status</h3>
+                <div class="metric">
+                    <span class="metric-label">Status</span>
+                    <span class="metric-value" id="serviceStatus">
+                        <span class="status-indicator status-online"></span>Online
+                    </span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Uptime</span>
+                    <span class="metric-value" id="uptime">-</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Available Engines</span>
+                    <span class="metric-value" id="engines">-</span>
+                </div>
+            </div>
+            
+            <!-- Worker Status Card -->
+            <div class="card">
+                <h3>⚙️ Worker Status</h3>
+                <div class="metric">
+                    <span class="metric-label">Active Workers</span>
+                    <span class="metric-value" id="activeWorkers">-</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Max Workers</span>
+                    <span class="metric-value" id="maxWorkers">-</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Utilization</span>
+                    <span class="metric-value" id="workerUtilization">-</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="workerProgress" style="width: 0%"></div>
+                </div>
+            </div>
+            
+            <!-- System Resources Card -->
+            <div class="card">
+                <h3>💻 System Resources</h3>
+                <div class="metric">
+                    <span class="metric-label">CPU Usage</span>
+                    <span class="metric-value" id="cpuUsage">-</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="cpuProgress" style="width: 0%"></div>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Memory Usage</span>
+                    <span class="metric-value" id="memoryUsage">-</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="memoryProgress" style="width: 0%"></div>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">CPU Cores</span>
+                    <span class="metric-value" id="cpuCores">-</span>
+                </div>
+            </div>
+            
+            <!-- Performance Metrics Card -->
+            <div class="card">
+                <h3>📈 Performance Metrics</h3>
+                <div class="metric">
+                    <span class="metric-label">Throughput/min</span>
+                    <span class="metric-value" id="throughput">-</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Queue Wait</span>
+                    <span class="metric-value" id="queueWait">-</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">High Volume Ready</span>
+                    <span class="metric-value" id="highVolumeReady">-</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Queue Status Card -->
+        <div id="queueCard" class="card" style="display: none;">
+            <h3>📋 Conversion Queue</h3>
+            <div class="metric">
+                <span class="metric-label">Queue Size</span>
+                <span class="metric-value" id="queueSize">-</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Processing</span>
+                <span class="metric-value" id="processing">-</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Completed</span>
+                <span class="metric-value" id="completed">-</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Failed</span>
+                <span class="metric-value" id="failed">-</span>
+            </div>
+        </div>
+    </div>
+    
+    <button class="refresh-btn" onclick="refreshData()">🔄 Refresh</button>
+    
+    <script>
+        let autoRefreshInterval;
+        
+        async function fetchData() {
+            try {
+                const [healthResponse, queueResponse] = await Promise.all([
+                    fetch('/health'),
+                    fetch('/queue/status')
+                ]);
+                
+                const healthData = await healthResponse.json();
+                const queueData = await queueResponse.json();
+                
+                return { health: healthData, queue: queueData };
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                return null;
+            }
+        }
+        
+        function updateUI(data) {
+            if (!data) return;
+            
+            const { health, queue } = data;
+            
+            // Service Status
+            document.getElementById('serviceStatus').innerHTML = 
+                `<span class="status-indicator status-online"></span>${health.status}`;
+            document.getElementById('engines').textContent = health.engines?.join(', ') || 'N/A';
+            
+            // Worker Status
+            document.getElementById('activeWorkers').textContent = health.active_conversions || 0;
+            document.getElementById('maxWorkers').textContent = health.max_workers || 0;
+            document.getElementById('workerUtilization').textContent = health.worker_utilization || '0%';
+            
+            const utilization = parseFloat(health.worker_utilization?.replace('%', '') || 0);
+            document.getElementById('workerProgress').style.width = `${utilization}%`;
+            
+            // System Resources
+            if (health.system_resources) {
+                const cpu = health.system_resources.cpu_percent || 0;
+                const memory = health.system_resources.memory_percent || 0;
+                
+                document.getElementById('cpuUsage').textContent = `${cpu.toFixed(1)}%`;
+                document.getElementById('cpuProgress').style.width = `${cpu}%`;
+                
+                document.getElementById('memoryUsage').textContent = `${memory.toFixed(1)}%`;
+                document.getElementById('memoryProgress').style.width = `${memory}%`;
+                
+                document.getElementById('cpuCores').textContent = health.system_resources.cpu_cores || 'N/A';
+            }
+            
+            // Performance Metrics
+            if (health.performance_metrics) {
+                document.getElementById('throughput').textContent = 
+                    `${health.performance_metrics.realistic_throughput_per_minute || 0}/min`;
+                document.getElementById('queueWait').textContent = 
+                    `${health.performance_metrics.current_queue_wait_minutes || 0} min`;
+            }
+            
+            if (health.recommendations) {
+                document.getElementById('highVolumeReady').textContent = 
+                    health.recommendations.high_volume_ready || 'N/A';
+            }
+            
+            // Queue Status
+            if (queue.success) {
+                document.getElementById('queueSize').textContent = queue.queue_size || 0;
+                document.getElementById('processing').textContent = queue.processing || 0;
+                document.getElementById('completed').textContent = queue.completed || 0;
+                document.getElementById('failed').textContent = queue.failed || 0;
+            }
+            
+            // Show dashboard
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('dashboard').style.display = 'grid';
+            document.getElementById('queueCard').style.display = 'block';
+        }
+        
+        async function refreshData() {
+            const data = await fetchData();
+            updateUI(data);
+        }
+        
+        function toggleAutoRefresh() {
+            const checkbox = document.getElementById('autoRefresh');
+            
+            if (checkbox.checked) {
+                autoRefreshInterval = setInterval(refreshData, 5000);
+            } else {
+                clearInterval(autoRefreshInterval);
+            }
+        }
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            refreshData();
+            toggleAutoRefresh();
+            
+            document.getElementById('autoRefresh').addEventListener('change', toggleAutoRefresh);
+        });
+    </script>
+</body>
+</html>

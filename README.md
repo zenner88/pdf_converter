@@ -95,15 +95,28 @@ Response:
   "service": "Simple PDF Converter",
   "status": "running",
   "available_engines": ["LibreOffice", "MS Word"],
-  "max_workers": 4
+  "max_workers": 4,
+  "active_conversions": 2,
+  "worker_utilization": "50.0%"
 }
 ```
 
-### 2. Convert DOCX to PDF (Standard)
+### 2. Web Monitoring Dashboard
+```
+GET /monitor
+```
+Real-time web dashboard untuk monitoring:
+- 🚀 **Service status** dan uptime
+- ⚙️ **Worker utilization** dan performance metrics  
+- 💻 **System resources** (CPU, memory)
+- 📋 **Queue status** dan conversion statistics
+- 🔄 **Auto-refresh** setiap 5 detik
+
+**Akses**: `http://localhost/monitor` atau `http://localhost:8000/monitor`
+
+### 3. Convert DOCX to PDF (Standard)
 ```
 POST /convert
-Content-Type: multipart/form-data
-Body: file (DOCX file)
 ```
 Response:
 ```json
@@ -114,7 +127,7 @@ Response:
 }
 ```
 
-### 3. Convert DOCX to PDF (Enhanced API)
+### 4. Convert DOCX to PDF (Enhanced API)
 ```
 POST /convertDua
 Content-Type: multipart/form-data

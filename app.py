@@ -9,8 +9,9 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 {{ ... }}
 from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Form
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 import aiofiles
 
 # Load environment variables from .env file
@@ -71,6 +72,12 @@ logger.info(f"  Temp dir: {TEMP_DIR}")
 logger.info(f"  Log dir: {LOG_DIR}")
 
 app = FastAPI(title="Simple PDF Converter", version="1.0.0")
+
+# Mount static files
+try:
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+except Exception as e:
+    logger.warning(f"Could not mount static files: {e}")
 
 # Enable CORS
 app.add_middleware(
@@ -703,6 +710,18 @@ async def health_check():
         "timestamp": datetime.now().isoformat()
     }
 
+
+@app.get("/monitor", response_class=HTMLResponse)
+async def monitoring_dashboard():
+    """Web-based monitoring dashboard"""
+    try:
+        with open("static/monitor.html", "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
+    except FileNotFoundError:
+        return HTMLResponse(
+            content="<h1>Monitoring Dashboard Not Found</h1><p>Please ensure static/monitor.html exists</p>",
+            status_code=404
+        )
 
 if __name__ == "__main__":
     import uvicorn
