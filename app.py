@@ -16,6 +16,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, F
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from contextlib import asynccontextmanager
 import aiofiles
 # Load environment variables from .env file
 try:
@@ -31,7 +32,14 @@ SERVICE_PORT = int(os.getenv('SERVICE_PORT', '8000'))
 CONVERSION_TIMEOUT = int(os.getenv('CONVERSION_TIMEOUT', '45'))  # Reduced for high volume
 MAX_WORKERS = int(os.getenv('MAX_WORKERS', '4'))  # Configurable via environment
 MAX_FILE_SIZE = int(os.getenv('MAX_FILE_SIZE', str(50 * 1024 * 1024)))  # 50MB default
-TEMP_DIR = os.getenv('TEMP_DIR', tempfile.gettempdir())
+
+# Windows-compatible temp directory
+default_temp = tempfile.gettempdir()
+if platform.system() == 'Windows':
+    # Use relative temp directory on Windows to avoid path issues
+    default_temp = 'temp'
+TEMP_DIR = os.getenv('TEMP_DIR', default_temp)
+
 LOG_DIR = os.getenv('LOG_DIR', 'logs')
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
 CLEANUP_INTERVAL = int(os.getenv('CLEANUP_INTERVAL', '600'))  # 10 minutes
@@ -244,24 +252,47 @@ class MSWordEngine(ConversionEngine):
             return False
     
     async def convert(self, input_path: str, output_path: str) -> bool:
-        """Convert using MS Word COM automation"""
+        """Convert using MS Word COM automation with proper COM initialization"""
         if platform.system() != "Windows":
             return False
         
+        def _convert_with_com():
+            """Convert with proper COM initialization in thread"""
+            import sys
+            com_initialized = False
+            
+            try:
+                # Initialize COM for this thread
+                if sys.platform == "win32":
+                    import pythoncom
+                    pythoncom.CoInitialize()
+                    com_initialized = True
+                
+                from docx2pdf import convert
+                convert(input_path, output_path)
+                
+                return os.path.exists(output_path) and os.path.getsize(output_path) > 0
+                
+            except Exception as e:
+                logger.error(f"MS Word conversion error: {e}")
+                return False
+            finally:
+                # Cleanup COM
+                if com_initialized and sys.platform == "win32":
+                    try:
+                        import pythoncom
+                        pythoncom.CoUninitialize()
+                    except:
+                        pass
+        
         try:
-            from docx2pdf import convert
-            
-            # Run in thread pool to avoid blocking
+            # Run in thread pool with proper COM initialization
             loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                executor, 
-                lambda: convert(input_path, output_path)
-            )
-            
-            return os.path.exists(output_path) and os.path.getsize(output_path) > 0
+            result = await loop.run_in_executor(executor, _convert_with_com)
+            return result
             
         except Exception as e:
-            logger.error(f"MS Word conversion error: {e}")
+            logger.error(f"MS Word executor error: {e}")
             return False
 
 
@@ -323,17 +354,18 @@ async def cleanup_old_conversions():
             logger.error(f"Cleanup error: {e}")
             await asyncio.sleep(600)
 
-# Start cleanup task
-@app.on_event("startup")
-async def startup_event():
-    """Start background tasks on startup"""
+# Lifespan event handler (replaces deprecated on_event)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application lifespan events"""
+    # Startup
     asyncio.create_task(cleanup_old_conversions())
     logger.info("PDF Converter service started")
     logger.info(f"Available conversion engines: {[engine.name for engine in available_engines]}")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on shutdown"""
+    
+    yield
+    
+    # Shutdown
     logger.info("PDF Converter service shutting down")
     # Clean up any remaining files
     for status in conversion_status.values():
@@ -343,6 +375,9 @@ async def shutdown_event():
                     os.remove(path)
                 except:
                     pass
+
+# Set lifespan after engines are initialized
+app.router.lifespan_context = lifespan
 
 
 async def convert_file(input_path: str, output_path: str, conversion_id: str) -> bool:
