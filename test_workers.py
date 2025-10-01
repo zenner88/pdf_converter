@@ -20,7 +20,6 @@ What it does:
 - Provides performance recommendations
 - Does NOT modify service settings
 """
-import requests
 import time
 import threading
 import statistics
@@ -28,6 +27,20 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 import argparse
+import sys
+
+# Check and import required modules
+try:
+    import requests
+except ImportError:
+    print("❌ Error: 'requests' module not found")
+    print("")
+    print("🔧 To fix this, install the required dependencies:")
+    print("   pip install -r requirements.txt")
+    print("   # or")
+    print("   pip install requests python-docx")
+    print("")
+    sys.exit(1)
 
 # Default configuration - can be overridden
 DEFAULT_HOST = "localhost"
@@ -49,12 +62,38 @@ def create_test_docx():
             doc.add_paragraph(f'Paragraph {i+1}: Lorem ipsum dolor sit amet, consectetur adipiscing elit.')
         
         doc.save('test_worker_doc.docx')
+        print("✅ Created realistic test DOCX file")
         return True
     except ImportError:
-        print("❌ python-docx not installed. Creating dummy file...")
-        with open('test_worker_doc.docx', 'wb') as f:
-            f.write(b'PK\x03\x04' + b'\x00' * 100)
-        return False
+        print("⚠️  python-docx not installed. Creating minimal test file...")
+        print("   For better testing, install: pip install python-docx")
+        
+        # Create a minimal ZIP file that looks like DOCX
+        import zipfile
+        with zipfile.ZipFile('test_worker_doc.docx', 'w') as zf:
+            # Add minimal DOCX structure
+            zf.writestr('[Content_Types].xml', '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>''')
+            
+            zf.writestr('_rels/.rels', '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>''')
+            
+            zf.writestr('word/document.xml', '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:body>
+<w:p><w:r><w:t>Test Document for Performance Testing</w:t></w:r></w:p>
+<w:p><w:r><w:t>This is a minimal DOCX file for testing purposes.</w:t></w:r></w:p>
+</w:body>
+</w:document>''')
+        
+        print("✅ Created minimal test DOCX file")
+        return True
 
 def send_conversion_request():
     """Send a single conversion request and measure time"""

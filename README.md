@@ -4,7 +4,6 @@ Converter DOCX ke PDF yang simple, cepat, dan stabil dengan dukungan parallel pr
 
 ## Fitur Utama
 
-✅ **LibreOffice sebagai engine utama** - Lebih stabil dan tidak mudah hang  
 ✅ **MS Word fallback** - Otomatis fallback jika LibreOffice gagal  
 ✅ **Parallel processing** - Bisa handle beberapa konversi bersamaan  
 ✅ **Timeout protection** - Tidak akan hang, ada timeout 60 detik  
@@ -12,26 +11,64 @@ Converter DOCX ke PDF yang simple, cepat, dan stabil dengan dukungan parallel pr
 ✅ **Auto cleanup** - File temporary otomatis dibersihkan  
 ✅ **Status tracking** - Monitor progress setiap konversi  
 
-## Requirements
-
-- Python 3.8+
-- LibreOffice (recommended) atau MS Word (Windows)
-- Dependencies: FastAPI, uvicorn, psutil, aiofiles
-
 ## Installation
 
+### Prerequisites
+- Python 3.7+
+- LibreOffice (recommended) atau MS Word (Windows)
+
+### Quick Setup
 ```bash
-# Clone atau copy project
+# Clone repository
+git clone https://github.com/zenner88/pdf_converter.git
 cd pdf_converter
 
-# Install dependencies
+# Option 1: Automatic installation
+python install_deps.py
+
+# Option 2: Manual installation
 pip install -r requirements.txt
 
-# Install LibreOffice (Ubuntu/Debian)
+# Option 3: Minimal installation (for testing only)
+pip install requests python-docx
+
+# Run service
+python start.py
+```
+
+### Troubleshooting Installation
+
+#### Missing 'requests' module:
+```bash
+# Fix for test_workers.py error
+pip install requests python-docx
+
+# Or install all dependencies
+pip install -r requirements.txt
+```
+
+#### Permission errors:
+```bash
+# Use user installation
+pip install --user -r requirements.txt
+
+# Or use virtual environment
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+# venv\Scripts\activate   # Windows
+pip install -r requirements.txt
+```
+
+#### LibreOffice not found:
+```bash
+# Ubuntu/Debian
 sudo apt-get install libreoffice
 
-# Install LibreOffice (Windows)
-# Download dari https://www.libreoffice.org/download/download/
+# CentOS/RHEL
+sudo yum install libreoffice
+
+# Manual path (if needed)
+export LIBREOFFICE_PATH="/usr/bin/libreoffice"
 ```
 
 ## Quick Start
