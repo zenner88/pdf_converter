@@ -34,3 +34,11 @@ Thumbs.db
 pdf_converter.log*
 conversions/
 temp/
+*.docx
+*.pdf
+test_worker_doc.docx
+test_output_*.pdf
+
+# Environment files (keep .env.example but ignore .env)
+.env.local
+.env.production

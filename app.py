@@ -1,27 +1,41 @@
 import os
-import asyncio
 import tempfile
 import subprocess
+import asyncio
 import shutil
 import uuid
 import platform
 from pathlib import Path
 from typing import Optional, Dict, Any
-import logging
-from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
-
-import psutil
+{{ ... }}
 from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Form
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import aiofiles
 
-# Configuration
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # Load .env file if it exists
+except ImportError:
+    # python-dotenv not installed, use environment variables only
+    pass
+
+# Configuration from environment variables or .env file
+SERVICE_HOST = os.getenv('SERVICE_HOST', '0.0.0.0')
+SERVICE_PORT = int(os.getenv('SERVICE_PORT', '8000'))
 CONVERSION_TIMEOUT = int(os.getenv('CONVERSION_TIMEOUT', '45'))  # Reduced for high volume
 MAX_WORKERS = int(os.getenv('MAX_WORKERS', '4'))  # Configurable via environment
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
-TEMP_DIR = tempfile.gettempdir()
+MAX_FILE_SIZE = int(os.getenv('MAX_FILE_SIZE', str(50 * 1024 * 1024)))  # 50MB default
+TEMP_DIR = os.getenv('TEMP_DIR', tempfile.gettempdir())
+LOG_DIR = os.getenv('LOG_DIR', 'logs')
+LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
+CLEANUP_INTERVAL = int(os.getenv('CLEANUP_INTERVAL', '600'))  # 10 minutes
+MAX_FILE_AGE = int(os.getenv('MAX_FILE_AGE', '3600'))  # 1 hour
+
+# Create directories if they don't exist
+Path(LOG_DIR).mkdir(exist_ok=True)
+Path(TEMP_DIR).mkdir(exist_ok=True)
 
 # High-volume deployment recommendations:
 # Target: 20-60 conversions/minute
@@ -36,16 +50,25 @@ TEMP_DIR = tempfile.gettempdir()
 # - LibreOffice limit: Max 15-20 concurrent instances
 # - Consider multiple service instances with load balancer
 
-# Setup logging
+# Setup logging with configurable level
+log_level = getattr(logging, LOG_LEVEL.upper(), logging.INFO)
 logging.basicConfig(
-    level=logging.INFO,
+    level=log_level,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('pdf_converter.log'),
+        logging.FileHandler(os.path.join(LOG_DIR, 'pdf_converter.log')),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Log configuration on startup
+logger.info(f"PDF Converter starting with configuration:")
+logger.info(f"  Service: {SERVICE_HOST}:{SERVICE_PORT}")
+logger.info(f"  Workers: {MAX_WORKERS}, Timeout: {CONVERSION_TIMEOUT}s")
+logger.info(f"  Max file size: {MAX_FILE_SIZE / (1024*1024):.1f}MB")
+logger.info(f"  Temp dir: {TEMP_DIR}")
+logger.info(f"  Log dir: {LOG_DIR}")
 
 app = FastAPI(title="Simple PDF Converter", version="1.0.0")
 
@@ -265,8 +288,8 @@ async def cleanup_old_conversions():
             expired_conversions = []
             
             for conv_id, status in conversion_status.items():
-                # Remove conversions older than 1 hour
-                if (current_time - status["created_time"]).total_seconds() > 3600:
+                # Remove conversions older than configured age
+                if (current_time - status["created_time"]).total_seconds() > MAX_FILE_AGE:
                     expired_conversions.append(conv_id)
             
             for conv_id in expired_conversions:
@@ -283,8 +306,8 @@ async def cleanup_old_conversions():
                 del conversion_status[conv_id]
                 logger.info(f"Cleaned up expired conversion: {conv_id}")
             
-            # Sleep for 10 minutes before next cleanup
-            await asyncio.sleep(600)
+            # Sleep for configured interval before next cleanup
+            await asyncio.sleep(CLEANUP_INTERVAL)
             
         except Exception as e:
             logger.error(f"Cleanup error: {e}")
@@ -683,4 +706,4 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host=SERVICE_HOST, port=SERVICE_PORT)

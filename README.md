@@ -210,17 +210,49 @@ Response:
 
 ## Configuration
 
-### Environment Variables
+### Configuration Options
+
+#### Option 1: Using .env file (Recommended)
+```bash
+# Copy example file
+cp .env.example .env
+
+# Edit configuration
+nano .env
+```
+
+Example `.env` file:
+```bash
+# Service Configuration
+SERVICE_HOST=0.0.0.0
+SERVICE_PORT=8000
+
+# Worker Configuration (Optimized for your server)
+MAX_WORKERS=4
+CONVERSION_TIMEOUT=40
+
+# File and Directory Settings
+MAX_FILE_SIZE=52428800
+TEMP_DIR=/tmp
+LOG_DIR=logs
+LOG_LEVEL=INFO
+
+# Optional LibreOffice path
+# LIBREOFFICE_PATH=/usr/bin/libreoffice
+```
+
+#### Option 2: Environment Variables
 ```bash
 # Core settings
 export MAX_WORKERS=4                        # Jumlah worker parallel (default: 4)
-export CONVERSION_TIMEOUT=60                 # Timeout per konversi (detik)
+export CONVERSION_TIMEOUT=40                 # Timeout per konversi (detik)
 export MAX_FILE_SIZE=52428800               # Max ukuran file (50MB)
 export LIBREOFFICE_PATH="/path/to/soffice"   # Optional, auto-detect jika tidak diset
 
 # Advanced settings
 export TEMP_DIR="/tmp"                      # Directory untuk file temporary
 export LOG_DIR="logs"                       # Directory untuk log files
+export LOG_LEVEL="INFO"                     # Logging level
 ```
 
 ### Worker Configuration Guide
