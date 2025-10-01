@@ -7,7 +7,6 @@ import uuid
 import platform
 from pathlib import Path
 from typing import Optional, Dict, Any
-{{ ... }}
 from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Form
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
