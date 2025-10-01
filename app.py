@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import aiofiles
+import httpx
 # Load environment variables from .env file
 try:
     from dotenv import load_dotenv
@@ -398,6 +399,95 @@ async def lifespan(app: FastAPI):
 app.router.lifespan_context = lifespan
 
 
+async def upload_pdf_to_target(conversion_id: str, pdf_path: str) -> bool:
+    """Upload PDF file to target URL"""
+    try:
+        if conversion_id not in conversion_status:
+            logger.error(f"Conversion status not found for {conversion_id}")
+            return False
+            
+        status = conversion_status[conversion_id]
+        target_url = status.get("target_url")
+        nomor_urut = status.get("nomor_urut")
+        
+        if not target_url:
+            logger.error(f"No target_url found for {conversion_id}")
+            return False
+            
+        # Determine endpoint based on original request
+        # Check if this was from /convertDua endpoint (has endpoint_type field)
+        endpoint_type = status.get("endpoint_type", "convert")  # default to convert
+        
+        if endpoint_type == "convertDua":
+            post_url = f"{target_url.rstrip('/')}/check/responseBalikConvertDua"
+        else:
+            post_url = f"{target_url.rstrip('/')}/check/responseBalikConvert"
+            
+        logger.info(f"Uploading PDF for {conversion_id} to {post_url}")
+        
+        # Upload with retry logic
+        max_retries = 3
+        retry_delay = 1
+        
+        for attempt in range(max_retries + 1):
+            try:
+                timeout_config = httpx.Timeout(90.0, connect=15.0)
+                
+                async with httpx.AsyncClient(timeout=timeout_config) as client:
+                    with open(pdf_path, "rb") as fpdf:
+                        file_size = os.path.getsize(pdf_path)
+                        logger.info(f"Attempt {attempt + 1}/{max_retries + 1} - Uploading PDF size: {file_size} bytes")
+                        
+                        files = {"docupload": (os.path.basename(pdf_path), fpdf, "application/pdf")}
+                        headers = {"User-Agent": "FastAPI-PDF-Converter/1.0"}
+                        data = {"overwrite": "true", "force_replace": "1"}
+                        
+                        resp = await client.post(post_url, files=files, headers=headers, data=data)
+                        
+                        # If success or not server error, break from retry loop
+                        if resp.status_code < 500:
+                            break
+                            
+            except (httpx.HTTPError, httpx.TimeoutException) as e:
+                logger.warning(f"Upload attempt {attempt + 1} failed: {e}")
+                if attempt < max_retries:
+                    logger.info(f"Retrying in {retry_delay} seconds...")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2
+                    continue
+                else:
+                    logger.error(f"Upload failed after {max_retries + 1} attempts: {e}")
+                    return False
+        
+        if resp is None:
+            logger.error("No response received from target server")
+            return False
+            
+        logger.info(f"Upload response status: {resp.status_code}")
+        
+        # Check if upload was successful
+        if 200 <= resp.status_code < 300:
+            try:
+                resp_json = resp.json()
+                if "upload_data" in resp_json:
+                    logger.info(f"Upload successful for {conversion_id}")
+                    return True
+                else:
+                    logger.warning(f"Upload response missing upload_data: {resp.text}")
+                    return False
+            except Exception as e:
+                logger.warning(f"Failed to parse upload response: {e}")
+                # Still consider it successful if status code is 2xx
+                return True
+        else:
+            logger.error(f"Upload failed with status {resp.status_code}: {resp.text}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Upload error for {conversion_id}: {e}")
+        return False
+
+
 async def convert_file(input_path: str, output_path: str, conversion_id: str) -> bool:
     """Convert DOCX to PDF using available engines"""
     
@@ -418,11 +508,35 @@ async def convert_file(input_path: str, output_path: str, conversion_id: str) ->
             success = await engine.convert(input_path, output_path)
             
             if success and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                conversion_status[conversion_id]["status"] = "completed"
+                conversion_status[conversion_id]["status"] = "uploading"
                 conversion_status[conversion_id]["engine_used"] = engine.name
-                conversion_status[conversion_id]["end_time"] = datetime.now()
-                logger.info(f"Conversion {conversion_id} completed with {engine.name}")
-                return True
+                logger.info(f"Conversion {conversion_id} completed with {engine.name}, starting upload...")
+                
+                # Upload file to target_url
+                upload_success = await upload_pdf_to_target(conversion_id, output_path)
+                
+                if upload_success:
+                    conversion_status[conversion_id]["status"] = "completed"
+                    conversion_status[conversion_id]["end_time"] = datetime.now()
+                    logger.info(f"Upload completed for {conversion_id}")
+                    
+                    # Cleanup files after successful upload
+                    try:
+                        if os.path.exists(input_path):
+                            os.remove(input_path)
+                            logger.info(f"Deleted input file: {input_path}")
+                        if os.path.exists(output_path):
+                            os.remove(output_path)
+                            logger.info(f"Deleted output file: {output_path}")
+                    except Exception as e:
+                        logger.warning(f"Failed to cleanup files for {conversion_id}: {e}")
+                else:
+                    conversion_status[conversion_id]["status"] = "upload_failed"
+                    conversion_status[conversion_id]["error"] = "Failed to upload PDF to target"
+                    conversion_status[conversion_id]["end_time"] = datetime.now()
+                    logger.error(f"Upload failed for {conversion_id}")
+                
+                return upload_success
             else:
                 logger.warning(f"{engine.name} failed for conversion {conversion_id}")
                 
@@ -455,7 +569,9 @@ async def root():
 @app.post("/convert")
 async def convert_docx(
     background_tasks: BackgroundTasks,
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    nomor_urut: str = Form(...),
+    target_url: str = Form(...)
 ):
     """Convert DOCX to PDF"""
     
@@ -466,12 +582,12 @@ async def convert_docx(
     if file.size and file.size > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail=f"File too large. Max size: {MAX_FILE_SIZE} bytes")
     
-    # Generate unique ID
-    conversion_id = str(uuid.uuid4())
+    # Use nomor_urut as conversion ID
+    conversion_id = nomor_urut
     
-    # Create temp files
-    temp_input = os.path.join(TEMP_DIR, f"{conversion_id}_input.docx")
-    temp_output = os.path.join(TEMP_DIR, f"{conversion_id}_output.pdf")
+    # Create files with nomor_urut naming
+    temp_input = os.path.join(TEMP_DIR, f"{conversion_id}.docx")
+    temp_output = os.path.join(TEMP_DIR, f"{conversion_id}.pdf")
     
     try:
         # Save uploaded file
@@ -483,6 +599,9 @@ async def convert_docx(
         conversion_status[conversion_id] = {
             "id": conversion_id,
             "filename": file.filename,
+            "nomor_urut": nomor_urut,
+            "target_url": target_url,
+            "endpoint_type": "convert",
             "status": "queued",
             "created_time": datetime.now(),
             "input_path": temp_input,
@@ -495,7 +614,8 @@ async def convert_docx(
         return JSONResponse({
             "conversion_id": conversion_id,
             "status": "queued",
-            "message": "Conversion started"
+            "message": "Conversion started",
+            "nomor_urut": nomor_urut
         })
         
     except Exception as e:
@@ -554,6 +674,7 @@ async def convert_dua(
             "filename": file.filename,
             "nomor_urut": nomor_urut,
             "target_url": target_url,
+            "endpoint_type": "convertDua",
             "status": "queued",
             "created_time": datetime.now(),
             "input_path": temp_input,
