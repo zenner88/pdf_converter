@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test script untuk integrasi dengan Sidinar Dashboard
+Test script untuk integrasi PDF Converter
 """
 import requests
 import time
@@ -50,7 +50,7 @@ def test_health_check():
         return False
 
 def test_queue_status():
-    """Test queue status endpoint (Sidinar compatible)"""
+    """Test queue status endpoint"""
     print("\n🔍 Testing queue status...")
     try:
         response = requests.get(f"{BASE_URL}/queue/status")
@@ -69,7 +69,7 @@ def test_queue_status():
         return False
 
 def test_convert_dua():
-    """Test /convertDua endpoint (Sidinar compatible)"""
+    """Test /convertDua endpoint"""
     print("\n🔍 Testing /convertDua endpoint...")
     
     if not os.path.exists(TEST_DOCX):
@@ -77,7 +77,7 @@ def test_convert_dua():
         return False
     
     try:
-        # Prepare request data (same format as Sidinar Dashboard)
+        # Prepare request data
         files = {'file': open(TEST_DOCX, 'rb')}
         data = {
             'nomor_urut': 'TEST_001_' + str(int(time.time())),
@@ -149,7 +149,7 @@ def test_pdf_download(conversion_id):
     print(f"\n🔍 Testing PDF download for {conversion_id}...")
     
     try:
-        # Test direct PDF access (Sidinar compatible)
+        # Test direct PDF access
         response = requests.get(f"{BASE_URL}/pdf/{conversion_id}")
         if response.status_code == 200:
             pdf_filename = f"test_output_{conversion_id}.pdf"
@@ -242,7 +242,7 @@ def main():
     print(f"   Passed: {tests_passed}/{total_tests}")
     
     if tests_passed == total_tests:
-        print("✅ All tests passed! Service is ready for Sidinar Dashboard integration.")
+        print("✅ All tests passed! Service is ready for integration.")
         return 0
     else:
         print("❌ Some tests failed. Please check the service configuration.")

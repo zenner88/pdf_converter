@@ -398,7 +398,7 @@ async def convert_dua(
     nomor_urut: str = Form(None),
     target_url: str = Form(None)
 ):
-    """Convert DOCX to PDF - Compatible with Sidinar Dashboard"""
+    """Convert DOCX to PDF - Enhanced API endpoint"""
     
     # Validate file
     if not file.filename.lower().endswith('.docx'):
@@ -446,7 +446,7 @@ async def convert_dua(
         # Start conversion in background
         background_tasks.add_task(convert_file, temp_input, temp_output, conversion_id)
         
-        # Return response compatible with Sidinar Dashboard
+        # Return enhanced response format
         return JSONResponse({
             "success": True,
             "message": "Conversion request received",
@@ -521,7 +521,7 @@ async def download_pdf(conversion_id: str):
 
 @app.get("/pdf/{conversion_id}")
 async def get_pdf_direct(conversion_id: str):
-    """Direct PDF access - Compatible with Sidinar Dashboard"""
+    """Direct PDF access - Enhanced endpoint"""
     if conversion_id not in conversion_status:
         # Try to find PDF file directly in temp directory
         pdf_path = os.path.join(TEMP_DIR, f"{conversion_id}.pdf")
@@ -570,7 +570,7 @@ async def cleanup_conversion(conversion_id: str):
 
 @app.get("/queue/status")
 async def queue_status():
-    """Get overall queue status - Compatible with Sidinar Dashboard"""
+    """Get overall queue status - Enhanced endpoint"""
     total = len(conversion_status)
     completed = sum(1 for s in conversion_status.values() if s["status"] == "completed")
     processing = sum(1 for s in conversion_status.values() if s["status"] == "processing")

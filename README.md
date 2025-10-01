@@ -77,7 +77,7 @@ Response:
 }
 ```
 
-### 3. Convert DOCX to PDF (Sidinar Dashboard Compatible)
+### 3. Convert DOCX to PDF (Enhanced API)
 ```
 POST /convertDua
 Content-Type: multipart/form-data
@@ -122,7 +122,7 @@ GET /download/{conversion_id}
 ```
 Returns: PDF file with original filename
 
-### 6. Direct PDF Access (Sidinar Compatible)
+### 6. Direct PDF Access (Enhanced)
 ```
 GET /pdf/{conversion_id}
 ```
@@ -134,7 +134,7 @@ DELETE /cleanup/{conversion_id}
 ```
 Menghapus file temporary setelah download
 
-### 8. Queue Status (Sidinar Compatible)
+### 8. Queue Status (Enhanced)
 ```
 GET /queue/status
 ```
@@ -218,12 +218,12 @@ with open('output.pdf', 'wb') as f:
 requests.delete(f'http://localhost:8000/cleanup/{conversion_id}')
 ```
 
-### Python requests (Sidinar Dashboard Compatible)
+### Python requests (Enhanced API)
 ```python
 import requests
 import time
 
-# Upload file with Sidinar format
+# Upload file with enhanced format
 with open('document.docx', 'rb') as f:
     data = {
         'nomor_urut': 'DOC_001_2024',
@@ -274,7 +274,7 @@ curl -O -J http://localhost:8000/download/your-conversion-id
 curl -X DELETE http://localhost:8000/cleanup/your-conversion-id
 ```
 
-#### Sidinar Dashboard Compatible API
+#### Enhanced API
 ```bash
 # Convert with metadata
 curl -X POST \
@@ -321,15 +321,15 @@ curl http://localhost:8000/health
 | **Performance** | Heavy | Lightweight |
 | **Maintenance** | Difficult | Easy |
 
-## Sidinar Dashboard Integration
+## Client Application Integration
 
-### Konfigurasi Sidinar Dashboard
+### Client Configuration
 
-Ubah URL converter service di `NaskahkeluarController.php`:
+Ubah URL converter service di aplikasi client:
 
 ```php
 // Ganti dari:
-$convertUrl = 'http://svc.sidinarbnn.my.id/convertDua';
+$convertUrl = 'http://old-service.com/convertDua';
 
 // Menjadi:
 $convertUrl = 'http://your-server:8000/convertDua';
@@ -382,9 +382,9 @@ export LIBREOFFICE_PATH="/usr/bin/libreoffice"
 - Monitor memory usage dengan `htop`
 - Check queue status: `curl http://localhost:8000/queue/status`
 
-### Sidinar Dashboard Issues
+### Client Integration Issues
 - Pastikan URL converter service benar
-- Check network connectivity antara Sidinar dan converter
+- Check network connectivity antara client dan converter
 - Monitor logs di kedua service
 - Test endpoint secara manual dengan cURL
 

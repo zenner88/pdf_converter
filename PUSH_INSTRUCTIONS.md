@@ -40,7 +40,7 @@ git push -u origin main
 ### Informasi Repository:
 
 **Project Name:** pdf_converter  
-**Description:** Simple PDF Converter with Sidinar Dashboard Integration  
+**Description:** Simple PDF Converter with Enhanced API  
 **Language:** Python  
 **Framework:** FastAPI  
 
@@ -48,7 +48,7 @@ git push -u origin main
 - LibreOffice primary engine with MS Word fallback
 - Async processing with parallel workers  
 - Timeout protection and anti-hang mechanisms
-- Full Sidinar Dashboard API compatibility
+- Full API compatibility with enhanced endpoints
 - Docker deployment ready
 - Comprehensive logging and monitoring
 - Integration testing included
@@ -68,7 +68,7 @@ test_integration.py     - Integration tests
 
 ### Setelah push berhasil:
 
-1. **Update Sidinar Dashboard** - Ganti URL converter service
+1. **Update Client Applications** - Ganti URL converter service
 2. **Deploy service** - Gunakan Docker atau manual deployment
 3. **Run tests** - `python test_integration.py`
 4. **Monitor logs** - Check `logs/pdf_converter.log`
