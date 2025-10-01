@@ -19,9 +19,15 @@ import aiofiles
 
 # Configuration
 CONVERSION_TIMEOUT = 60  # seconds
-MAX_WORKERS = 4
+MAX_WORKERS = int(os.getenv('MAX_WORKERS', '4'))  # Configurable via environment
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 TEMP_DIR = tempfile.gettempdir()
+
+# Worker recommendations based on system specs:
+# - Light system (2-4 cores, 4-8GB RAM): 2-4 workers
+# - Medium system (4-8 cores, 8-16GB RAM): 4-8 workers  
+# - Heavy system (8+ cores, 16+ GB RAM): 8-15 workers
+# Note: LibreOffice may have issues with >10 concurrent instances
 
 # Setup logging
 logging.basicConfig(
@@ -327,11 +333,15 @@ async def convert_file(input_path: str, output_path: str, conversion_id: str) ->
 @app.get("/")
 async def root():
     """Health check endpoint"""
+    active_conversions = len([s for s in conversion_status.values() if s["status"] in ["queued", "processing"]])
+    
     return {
         "service": "Simple PDF Converter",
         "status": "running",
         "available_engines": [engine.name for engine in available_engines],
-        "max_workers": MAX_WORKERS
+        "max_workers": MAX_WORKERS,
+        "active_conversions": active_conversions,
+        "worker_utilization": f"{(active_conversions / MAX_WORKERS * 100):.1f}%" if MAX_WORKERS > 0 else "0%"
     }
 
 
@@ -601,12 +611,30 @@ async def queue_status():
 @app.get("/health")
 async def health_check():
     """Health check endpoint for monitoring"""
+    # Get system resource info
+    cpu_percent = psutil.cpu_percent(interval=1)
+    memory = psutil.virtual_memory()
+    
+    active_conversions = len([s for s in conversion_status.values() if s["status"] in ["queued", "processing"]])
+    
     return {
         "status": "healthy",
         "service": "Simple PDF Converter",
         "engines_available": len(available_engines),
         "engines": [engine.name for engine in available_engines],
-        "active_conversions": len([s for s in conversion_status.values() if s["status"] in ["queued", "processing"]]),
+        "active_conversions": active_conversions,
+        "max_workers": MAX_WORKERS,
+        "worker_utilization": f"{(active_conversions / MAX_WORKERS * 100):.1f}%" if MAX_WORKERS > 0 else "0%",
+        "system_resources": {
+            "cpu_percent": cpu_percent,
+            "memory_percent": memory.percent,
+            "memory_available_gb": round(memory.available / (1024**3), 2),
+            "cpu_cores": psutil.cpu_count()
+        },
+        "recommendations": {
+            "current_load": "high" if active_conversions > MAX_WORKERS * 0.8 else "medium" if active_conversions > MAX_WORKERS * 0.5 else "low",
+            "suggested_action": "Consider increasing workers" if active_conversions > MAX_WORKERS * 0.8 and cpu_percent < 80 and memory.percent < 80 else "Current workers sufficient"
+        },
         "timestamp": datetime.now().isoformat()
     }
 

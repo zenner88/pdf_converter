@@ -173,17 +173,47 @@ Response:
 
 ## Configuration
 
-Edit di `app.py`:
+### Environment Variables
+```bash
+# Core settings
+export MAX_WORKERS=4                        # Jumlah worker parallel (default: 4)
+export CONVERSION_TIMEOUT=60                 # Timeout per konversi (detik)
+export MAX_FILE_SIZE=52428800               # Max ukuran file (50MB)
+export LIBREOFFICE_PATH="/path/to/soffice"   # Optional, auto-detect jika tidak diset
 
-```python
-CONVERSION_TIMEOUT = 60  # Timeout per konversi (detik)
-MAX_WORKERS = 4          # Jumlah worker parallel
-MAX_FILE_SIZE = 50 * 1024 * 1024  # Max ukuran file (50MB)
+# Advanced settings
+export TEMP_DIR="/tmp"                      # Directory untuk file temporary
+export LOG_DIR="logs"                       # Directory untuk log files
 ```
 
-Environment variables:
+### Worker Configuration Guide
+
+**Rekomendasi berdasarkan spesifikasi sistem:**
+
+| System Specs | CPU Cores | RAM | Recommended Workers | Max Workers |
+|--------------|-----------|-----|-------------------|-------------|
+| **Light** | 2-4 cores | 4-8GB | 2-4 workers | 6 workers |
+| **Medium** | 4-8 cores | 8-16GB | 4-8 workers | 10 workers |
+| **Heavy** | 8+ cores | 16+ GB | 8-12 workers | 15 workers |
+
+**⚠️ Important Notes:**
+- LibreOffice may have stability issues with >10 concurrent instances
+- Each worker uses ~100-500MB RAM depending on document size
+- Monitor CPU and memory usage when increasing workers
+- Use `/health` endpoint to monitor system resources
+
+### Dynamic Worker Adjustment
 ```bash
-export LIBREOFFICE_PATH="/path/to/soffice"  # Optional, auto-detect jika tidak diset
+# Start with conservative workers
+export MAX_WORKERS=4
+python start.py
+
+# Monitor performance
+curl http://localhost:8000/health
+
+# Increase if needed
+export MAX_WORKERS=8
+# Restart service
 ```
 
 ## Usage Example
@@ -376,11 +406,47 @@ export LIBREOFFICE_PATH="/usr/bin/libreoffice"
 - Coba dengan file DOCX yang lebih simple
 - Test dengan: `python test_integration.py`
 
-### Performance tuning
-- Kurangi `MAX_WORKERS` jika server lemah
-- Tingkatkan `CONVERSION_TIMEOUT` untuk file besar
-- Monitor memory usage dengan `htop`
-- Check queue status: `curl http://localhost:8000/queue/status`
+### Performance Tuning
+
+#### Worker Optimization
+```bash
+# Check current performance
+curl http://localhost:8000/health
+
+# Monitor worker utilization
+watch -n 2 'curl -s http://localhost:8000/ | jq .worker_utilization'
+
+# System resource monitoring
+htop  # or top
+```
+
+#### Scaling Guidelines
+- **Increase workers** jika:
+  - Worker utilization > 80%
+  - CPU usage < 80%
+  - Memory usage < 80%
+  - Queue size consistently > 5
+
+- **Decrease workers** jika:
+  - CPU usage > 90%
+  - Memory usage > 90%
+  - Frequent conversion failures
+  - System becomes unresponsive
+
+#### Recommended Settings
+```bash
+# For high-volume production (16+ cores, 32+ GB RAM)
+export MAX_WORKERS=12
+export CONVERSION_TIMEOUT=90
+
+# For medium production (8 cores, 16 GB RAM)
+export MAX_WORKERS=6
+export CONVERSION_TIMEOUT=60
+
+# For development/testing (4 cores, 8 GB RAM)
+export MAX_WORKERS=3
+export CONVERSION_TIMEOUT=45
+```
 
 ### Client Integration Issues
 - Pastikan URL converter service benar
