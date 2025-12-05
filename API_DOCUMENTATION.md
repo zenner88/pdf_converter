@@ -92,3 +92,36 @@ Endpoint ini berguna untuk memantau kesehatan dan status layanan secara terprogr
 ### 4. `GET /monitor/data`
 -   **Deskripsi**: Endpoint gabungan yang menyediakan semua data pemantauan dari `/health` dan `/queue/status` dalam satu panggilan API. Paling efisien untuk pemantauan eksternal.
 -   **Respons (`JSON`)**: Objek terstruktur tunggal yang berisi semua metrik pemantauan yang relevan.
+    ```json
+    {
+      "service": {
+        "status": "healthy",
+        "engines": ["LibreOffice", "MS Word"],
+        "high_volume_ready": "Yes",
+        "message": "Service ready"
+      },
+      "workers": {
+        "active": 2,
+        "max": 4,
+        "utilization": "50.0%"
+      },
+      "system": {
+        "cpu_percent": "15.2",
+        "memory_percent": "45.8",
+        "cpu_cores": 8
+      },
+      "performance": {
+        "realistic_throughput_per_minute": 26.7,
+        "current_queue_wait_minutes": 1
+      },
+      "queue": {
+        "total": 10,
+        "size": 5,
+        "queued": 3,
+        "processing": 2,
+        "completed": 5,
+        "failed": 0
+      },
+      "timestamp": "2025-12-05T10:00:00.000Z"
+    }
+    ```
