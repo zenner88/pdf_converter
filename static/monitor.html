@@ -319,103 +319,102 @@
     
     <script>
         let autoRefreshInterval;
-        
+        let startTime = new Date(); // Record start time
+
         async function fetchData() {
             try {
-                const [healthResponse, queueResponse] = await Promise.all([
-                    fetch('/health'),
-                    fetch('/queue/status')
-                ]);
-                
-                const healthData = await healthResponse.json();
-                const queueData = await queueResponse.json();
-                
-                return { health: healthData, queue: queueData };
+                const response = await fetch('/monitor/data');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return await response.json();
             } catch (error) {
                 console.error('Error fetching data:', error);
+                // Display error on dashboard
+                document.getElementById('serviceStatus').innerHTML =
+                    `<span class="status-indicator status-error"></span>Error`;
+                document.getElementById('loading').textContent = 'Could not fetch data. Retrying...';
                 return null;
             }
         }
-        
+
         function updateUI(data) {
             if (!data) return;
-            
-            const { health, queue } = data;
-            
+
+            const { service, workers, system, performance, queue } = data;
+
             // Service Status
-            document.getElementById('serviceStatus').innerHTML = 
-                `<span class="status-indicator status-online"></span>${health.status}`;
-            document.getElementById('engines').textContent = health.engines?.join(', ') || 'N/A';
+            let statusClass = 'status-warning';
+            if (service.status === 'healthy') statusClass = 'status-online';
+            if (service.status === 'degraded') statusClass = 'status-error';
+
+            document.getElementById('serviceStatus').innerHTML =
+                `<span class="status-indicator ${statusClass}"></span>${service.status}`;
+            document.getElementById('engines').textContent = service.engines?.join(', ') || 'N/A';
             
+            // Calculate and display uptime
+            const uptime = new Date() - startTime;
+            const hours = Math.floor(uptime / 3600000);
+            const minutes = Math.floor((uptime % 3600000) / 60000);
+            const seconds = Math.floor((uptime % 60000) / 1000);
+            document.getElementById('uptime').textContent = 
+                `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+
+
             // Worker Status
-            document.getElementById('activeWorkers').textContent = health.active_conversions || 0;
-            document.getElementById('maxWorkers').textContent = health.max_workers || 0;
-            document.getElementById('workerUtilization').textContent = health.worker_utilization || '0%';
-            
-            const utilization = parseFloat(health.worker_utilization?.replace('%', '') || 0);
+            document.getElementById('activeWorkers').textContent = workers.active || 0;
+            document.getElementById('maxWorkers').textContent = workers.max || 0;
+            document.getElementById('workerUtilization').textContent = workers.utilization || '0%';
+            const utilization = parseFloat(workers.utilization?.replace('%', '') || 0);
             document.getElementById('workerProgress').style.width = `${utilization}%`;
-            
+
             // System Resources
-            if (health.system_resources) {
-                const cpu = health.system_resources.cpu_percent || 0;
-                const memory = health.system_resources.memory_percent || 0;
-                
-                document.getElementById('cpuUsage').textContent = `${cpu.toFixed(1)}%`;
-                document.getElementById('cpuProgress').style.width = `${cpu}%`;
-                
-                document.getElementById('memoryUsage').textContent = `${memory.toFixed(1)}%`;
-                document.getElementById('memoryProgress').style.width = `${memory}%`;
-                
-                document.getElementById('cpuCores').textContent = health.system_resources.cpu_cores || 'N/A';
-            }
+            const cpu = parseFloat(system.cpu_percent || 0);
+            const memory = parseFloat(system.memory_percent || 0);
+            document.getElementById('cpuUsage').textContent = `${cpu.toFixed(1)}%`;
+            document.getElementById('cpuProgress').style.width = `${cpu}%`;
+            document.getElementById('memoryUsage').textContent = `${memory.toFixed(1)}%`;
+            document.getElementById('memoryProgress').style.width = `${memory}%`;
+            document.getElementById('cpuCores').textContent = system.cpu_cores || 'N/A';
             
             // Performance Metrics
-            if (health.performance_metrics) {
-                document.getElementById('throughput').textContent = 
-                    `${health.performance_metrics.realistic_throughput_per_minute || 0}/min`;
-                document.getElementById('queueWait').textContent = 
-                    `${health.performance_metrics.current_queue_wait_minutes || 0} min`;
-            }
-            
-            if (health.recommendations) {
-                document.getElementById('highVolumeReady').textContent = 
-                    health.recommendations.high_volume_ready || 'N/A';
-            }
-            
+            document.getElementById('throughput').textContent = `${performance.realistic_throughput_per_minute || 0}/min`;
+            document.getElementById('queueWait').textContent = `${performance.current_queue_wait_minutes || 0} min`;
+            document.getElementById('highVolumeReady').textContent = service.high_volume_ready || 'N/A';
+
             // Queue Status
-            if (queue.success) {
-                document.getElementById('queueSize').textContent = queue.queue_size || 0;
-                document.getElementById('processing').textContent = queue.processing || 0;
-                document.getElementById('completed').textContent = queue.completed || 0;
-                document.getElementById('failed').textContent = queue.failed || 0;
-            }
-            
+            document.getElementById('queueSize').textContent = queue.size || 0;
+            document.getElementById('processing').textContent = queue.processing || 0;
+            document.getElementById('completed').textContent = queue.completed || 0;
+            document.getElementById('failed').textContent = queue.failed || 0;
+
             // Show dashboard
             document.getElementById('loading').style.display = 'none';
             document.getElementById('dashboard').style.display = 'grid';
             document.getElementById('queueCard').style.display = 'block';
         }
-        
+
         async function refreshData() {
             const data = await fetchData();
             updateUI(data);
         }
-        
+
         function toggleAutoRefresh() {
             const checkbox = document.getElementById('autoRefresh');
-            
             if (checkbox.checked) {
-                autoRefreshInterval = setInterval(refreshData, 5000);
+                if (!autoRefreshInterval) {
+                    autoRefreshInterval = setInterval(refreshData, 5000);
+                }
             } else {
                 clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
             }
         }
-        
+
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
             refreshData();
-            toggleAutoRefresh();
-            
+            toggleAutoRefresh(); // Set up the interval based on the initial checkbox state
             document.getElementById('autoRefresh').addEventListener('change', toggleAutoRefresh);
         });
     </script>

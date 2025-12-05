@@ -885,6 +885,70 @@ async def health_check():
     }
 
 
+@app.get("/monitor/data")
+async def get_monitor_data():
+    """Provides combined data for the monitoring dashboard."""
+    # From health_check()
+    cpu_percent = psutil.cpu_percent(interval=None) # Non-blocking
+    memory = psutil.virtual_memory()
+    active_conversions = len([s for s in conversion_status.values() if s["status"] in ["queued", "processing"]])
+    worker_utilization = (active_conversions / MAX_WORKERS * 100) if MAX_WORKERS > 0 else 0
+    
+    # From queue_status()
+    total = len(conversion_status)
+    completed = sum(1 for s in conversion_status.values() if s["status"] == "completed")
+    processing = sum(1 for s in conversion_status.values() if s["status"] in ["processing", "uploading"])
+    failed = sum(1 for s in conversion_status.values() if s["status"] in ["failed", "upload_failed"])
+    queued = total - processing - completed - failed
+    queue_size = queued + processing
+
+    current_throughput = (MAX_WORKERS * 60) / CONVERSION_TIMEOUT * 0.7 if CONVERSION_TIMEOUT > 0 else 0
+    is_high_volume_ready = current_throughput >= 20
+
+    if queue_size == 0:
+        status_message = "Service ready"
+    elif queue_size < 5:
+        status_message = "Low queue"
+    elif queue_size < 15:
+        status_message = "Medium queue"
+    elif queue_size < 30:
+        status_message = "High queue"
+    else:
+        status_message = "Very high queue - consider scaling"
+
+    return {
+        "service": {
+            "status": "healthy" if available_engines else "degraded",
+            "engines": [engine.name for engine in available_engines],
+            "high_volume_ready": "Yes" if is_high_volume_ready else "No",
+            "message": status_message,
+        },
+        "workers": {
+            "active": active_conversions,
+            "max": MAX_WORKERS,
+            "utilization": f"{worker_utilization:.1f}%",
+        },
+        "system": {
+            "cpu_percent": f"{cpu_percent:.1f}",
+            "memory_percent": f"{memory.percent:.1f}",
+            "cpu_cores": psutil.cpu_count(),
+        },
+        "performance": {
+            "realistic_throughput_per_minute": round(current_throughput, 1),
+            "current_queue_wait_minutes": round(queue_size * (CONVERSION_TIMEOUT / 60) / MAX_WORKERS, 1) if MAX_WORKERS > 0 else 0,
+        },
+        "queue": {
+            "total": total,
+            "size": queue_size,
+            "queued": queued,
+            "processing": processing,
+            "completed": completed,
+            "failed": failed,
+        },
+        "timestamp": datetime.now().isoformat()
+    }
+
+
 @app.get("/monitor", response_class=HTMLResponse)
 async def monitoring_dashboard():
     """Web-based monitoring dashboard"""
