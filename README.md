@@ -1,616 +1,195 @@
-# Simple PDF Converter
+# Panduan Menjalankan PDF Converter di Windows
 
-Converter DOCX ke PDF yang simple, cepat, dan stabil dengan dukungan parallel processing.
+Aplikasi ini adalah layanan konversi DOCX ke PDF yang sederhana namun efisien, dibangun menggunakan FastAPI. Layanan ini mendukung konversi melalui LibreOffice (multi-platform) dan MS Word COM Automation (khusus Windows), serta dilengkapi dengan fitur seperti unggah ke target URL, antrean konversi, dan pemantauan status.
 
-## Fitur Utama
+## Daftar Isi
+- [Persyaratan](#persyaratan)
+- [Instalasi](#instalasi)
+- [Konfigurasi](#konfigurasi)
+- [Menjalankan Aplikasi](#menjalankan-aplikasi)
+    - [Opsi 1: Menggunakan `run_windows_fixed.bat` (Disarankan, Memerlukan Administrator)](#opsi-1-menggunakan-run_windows_fixedbat-disarankan-memerlukan-administrator)
+    - [Opsi 2: Manual (Memerlukan Administrator)](#opsi-2-manual-memerlukan-administrator)
+    - [Opsi 3: Menggunakan Port Berbeda (Tidak Memerlukan Administrator)](#opsi-3-menggunakan-port-berbeda-tidak-memerlukan-administrator)
+- [Troubleshooting](#troubleshooting)
+    - [Masalah Port 80](#masalah-port-80)
+    - ["Permission denied" pada Port 80](#permission-denied-pada-port-80)
+    - ["Port already in use"](#port-already-in-use)
+    - [LibreOffice Tidak Ditemukan](#libreoffice-tidak-ditemukan)
+- [Endpoint API](#endpoint-api)
+- [Deployment Produksi](#deployment-produksi)
 
-✅ **MS Word fallback** - Otomatis fallback jika LibreOffice gagal  
-✅ **Parallel processing** - Bisa handle beberapa konversi bersamaan  
-✅ **Timeout protection** - Tidak akan hang, ada timeout 60 detik  
-✅ **Async processing** - Non-blocking, response cepat  
-✅ **Auto cleanup** - File temporary otomatis dibersihkan  
-✅ **Status tracking** - Monitor progress setiap konversi  
+---
 
-## Installation
+## Persyaratan
 
-### Prerequisites
-- Python 3.7+
-- LibreOffice (recommended) atau MS Word (Windows)
+Sebelum menjalankan aplikasi, pastikan sistem Anda memenuhi persyaratan berikut:
 
-### Quick Setup
-```bash
-# Clone repository
-git clone https://github.com/zenner88/pdf_converter.git
-cd pdf_converter
+1.  **Python 3.7+**:
+    *   Unduh dan instal Python dari [python.org](https://www.python.org/downloads/windows/).
+    *   Pastikan untuk mencentang opsi "Add Python to PATH" selama instalasi.
+2.  **LibreOffice**:
+    *   LibreOffice digunakan sebagai mesin konversi utama. Unduh dan instal dari [libreoffice.org](https://www.libreoffice.org/download/).
+    *   Pastikan LibreOffice terinstal di jalur default (`C:\Program Files\LibreOffice` atau `C:\Program Files (x86)\LibreOffice`) atau tentukan jalurnya di `.env`.
+3.  **(Opsional) Microsoft Word**:
+    *   Jika Anda ingin menggunakan MS Word untuk konversi (khusus Windows, lebih andal untuk beberapa format), pastikan Microsoft Word terinstal di sistem Anda.
 
-# Option 1: Automatic installation
-python install_deps.py
+## Instalasi
 
-# Option 2: Manual installation
-pip install -r requirements.txt
+Ikuti langkah-langkah ini untuk menyiapkan proyek:
 
-# Option 3: Minimal installation (for testing only)
-pip install requests python-docx
+1.  **Clone Repositori**:
+    ```bash
+    git clone https://github.com/your-repo/pdf_converter.git
+    cd pdf_converter
+    ```
 
-# Run service
-python start.py
-```
+2.  **Instal Dependensi**:
+    Buka `Command Prompt` atau `PowerShell` **sebagai Administrator** (disarankan, terutama jika Anda menggunakan `run_windows_fixed.bat` atau ingin menginstal `pywin32`).
 
-### Troubleshooting Installation
+    ```cmd
+    pip install -r requirements.txt
+    ```
+    Skrip `run_windows_fixed.bat` juga akan secara otomatis menginstal `pywin32` jika diperlukan untuk integrasi MS Word.
 
-#### Missing 'requests' module:
-```bash
-# Fix for test_workers.py error
-pip install requests python-docx
+## Konfigurasi
 
-# Or install all dependencies
-pip install -r requirements.txt
-```
+Anda dapat mengkonfigurasi aplikasi menggunakan file `.env` di root proyek. Salin `.env.example` ke `.env` dan sesuaikan nilai-nilainya:
 
-#### Permission errors:
-```bash
-# Use user installation
-pip install --user -r requirements.txt
-
-# Or use virtual environment
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# venv\Scripts\activate   # Windows
-pip install -r requirements.txt
-```
-
-#### LibreOffice not found:
-```bash
-# Ubuntu/Debian
-sudo apt-get install libreoffice
-
-# CentOS/RHEL
-sudo yum install libreoffice
-
-# Manual path (if needed)
-export LIBREOFFICE_PATH="/usr/bin/libreoffice"
-```
-
-## Quick Start
-
-```bash
-# Start server
-python app.py
-
-# Atau dengan uvicorn
-uvicorn app:app --host 0.0.0.0 --port 8000 --reload
-```
-
-Server akan berjalan di `http://localhost:8000`
-
-## API Endpoints
-
-### 1. Health Check
-```
-GET /
-```
-Response:
-```json
-{
-  "service": "Simple PDF Converter",
-  "status": "running",
-  "available_engines": ["LibreOffice", "MS Word"],
-  "max_workers": 4,
-  "active_conversions": 2,
-  "worker_utilization": "50.0%"
-}
-```
-
-### 2. Web Monitoring Dashboard
-```
-GET /monitor
-```
-Real-time web dashboard untuk monitoring:
-- 🚀 **Service status** dan uptime
-- ⚙️ **Worker utilization** dan performance metrics  
-- 💻 **System resources** (CPU, memory)
-- 📋 **Queue status** dan conversion statistics
-- 🔄 **Auto-refresh** setiap 5 detik
-
-**Akses**: `http://localhost/monitor` atau `http://localhost:8000/monitor`
-
-### 3. Convert DOCX to PDF (Standard)
-```
-POST /convert
-```
-Response:
-```json
-{
-  "conversion_id": "uuid-string",
-  "status": "queued",
-  "message": "Conversion started"
-}
-```
-
-### 4. Convert DOCX to PDF (Enhanced API)
-```
-POST /convertDua
-Content-Type: multipart/form-data
-Body: 
-  - file (DOCX file)
-  - nomor_urut (string, optional)
-  - target_url (string, optional)
-```
-Response:
-```json
-{
-  "success": true,
-  "message": "Conversion request received",
-  "nomor_urut": "your-nomor-urut",
-  "status": "queued",
-  "conversion_id": "conversion-id"
-}
-```
-
-### 4. Check Status
-```
-GET /status/{conversion_id}
-```
-Response:
-```json
-{
-  "id": "uuid-string",
-  "filename": "document.docx",
-  "status": "completed",
-  "engine_used": "LibreOffice",
-  "created_time": "2024-01-01T10:00:00",
-  "start_time": "2024-01-01T10:00:01",
-  "end_time": "2024-01-01T10:00:05"
-}
-```
-
-Status values: `queued`, `processing`, `completed`, `failed`
-
-### 5. Download PDF (Standard)
-```
-GET /download/{conversion_id}
-```
-Returns: PDF file with original filename
-
-### 6. Direct PDF Access (Enhanced)
-```
-GET /pdf/{conversion_id}
-```
-Returns: PDF file directly
-
-### 7. Cleanup Files
-```
-DELETE /cleanup/{conversion_id}
-```
-Menghapus file temporary setelah download
-
-### 8. Queue Status (Enhanced)
-```
-GET /queue/status
-```
-Response:
-```json
-{
-  "success": true,
-  "service_status": "online",
-  "total_conversions": 10,
-  "queued": 2,
-  "processing": 1,
-  "completed": 6,
-  "failed": 1,
-  "queue_size": 3,
-  "estimated_wait_minutes": 2,
-  "available_engines": ["LibreOffice"],
-  "message": "Service siap digunakan"
-}
-```
-
-### 9. Health Check (Detailed)
-```
-GET /health
-```
-Response:
-```json
-{
-  "status": "healthy",
-  "service": "Simple PDF Converter",
-  "engines_available": 1,
-  "engines": ["LibreOffice"],
-  "active_conversions": 0,
-  "timestamp": "2024-01-01T10:00:00"
-}
-```
-
-## Configuration
-
-### Configuration Options
-
-#### Option 1: Using .env file (Recommended)
-```bash
-# Copy example file
-cp .env.example .env
-
-# Edit configuration
-nano .env
-```
-
-Example `.env` file:
-```bash
-# Service Configuration
+```ini
+# Contoh file .env
 SERVICE_HOST=0.0.0.0
 SERVICE_PORT=8000
-
-# Worker Configuration (Optimized for your server)
+CONVERSION_TIMEOUT=45
 MAX_WORKERS=4
-CONVERSION_TIMEOUT=40
-
-# File and Directory Settings
-MAX_FILE_SIZE=52428800
-TEMP_DIR=/tmp
-LOG_DIR=logs
-LOG_LEVEL=INFO
-
-# Optional LibreOffice path
-# LIBREOFFICE_PATH=/usr/bin/libreoffice
+MAX_FILE_SIZE=52428800 # 50MB
+TEMP_DIR=temp # Direktori sementara untuk file konversi
+LOG_DIR=logs # Direktori untuk file log
+LOG_LEVEL=INFO # INFO, WARNING, ERROR, DEBUG
+LIBREOFFICE_PATH=C:\Program Files\LibreOffice\program\soffice.exe # Opsional: jika LibreOffice tidak di jalur default
 ```
 
-#### Option 2: Environment Variables
-```bash
-# Core settings
-export MAX_WORKERS=4                        # Jumlah worker parallel (default: 4)
-export CONVERSION_TIMEOUT=40                 # Timeout per konversi (detik)
-export MAX_FILE_SIZE=52428800               # Max ukuran file (50MB)
-export LIBREOFFICE_PATH="/path/to/soffice"   # Optional, auto-detect jika tidak diset
+**Variabel Penting**:
+*   `SERVICE_PORT`: Port tempat layanan akan berjalan. Default: `8000`. Untuk Port 80, Anda perlu hak Administrator.
+*   `LIBREOFFICE_PATH`: Jalur lengkap ke executable LibreOffice (`soffice.exe`). Hanya diperlukan jika LibreOffice tidak terdeteksi secara otomatis.
+*   `TEMP_DIR` dan `LOG_DIR`: Direktori untuk menyimpan file sementara dan log. Di Windows, `run_windows_fixed.bat` akan membuat direktori `temp` dan `logs` secara lokal jika tidak ada.
 
-# Advanced settings
-export TEMP_DIR="/tmp"                      # Directory untuk file temporary
-export LOG_DIR="logs"                       # Directory untuk log files
-export LOG_LEVEL="INFO"                     # Logging level
-```
+## Menjalankan Aplikasi
 
-### Worker Configuration Guide
+Ada beberapa cara untuk menjalankan aplikasi di Windows:
 
-**Rekomendasi berdasarkan spesifikasi sistem:**
+### Opsi 1: Menggunakan `run_windows_fixed.bat` (Disarankan, Memerlukan Administrator)
 
-| System Specs | CPU Cores | RAM | Recommended Workers | Max Workers |
-|--------------|-----------|-----|-------------------|-------------|
-| **Light** | 2-4 cores | 4-8GB | 2-4 workers | 6 workers |
-| **Medium** | 4-8 cores | 8-16GB | 4-8 workers | 10 workers |
-| **Heavy** | 8+ cores | 16+ GB | 8-12 workers | 15 workers |
+File batch ini melakukan instalasi dependensi dasar, membuat direktori `temp` dan `logs`, dan menjalankan aplikasi di Port 80. Ini juga menangani beberapa masalah umum di Windows (seperti inisialisasi COM untuk MS Word).
 
-**⚠️ Important Notes:**
-- LibreOffice may have stability issues with >10 concurrent instances
-- Each worker uses ~100-500MB RAM depending on document size
-- Monitor CPU and memory usage when increasing workers
-- Use `/health` endpoint to monitor system resources
+1.  **Klik kanan** pada `run_windows_fixed.bat`.
+2.  Pilih **"Run as administrator"**.
+3.  Layanan akan berjalan di `http://localhost` (Port 80).
+    *   Dashboard Pemantauan: `http://localhost/monitor`
 
-### Dynamic Worker Adjustment
-```bash
-# Start with conservative workers
-export MAX_WORKERS=4
-python start.py
+### Opsi 2: Manual (Memerlukan Administrator)
 
-# Monitor performance
-curl http://localhost:8000/health
+Jika Anda ingin menjalankan layanan di Port 80 secara manual:
 
-# Increase if needed
-export MAX_WORKERS=8
-# Restart service
-```
+1.  **Buka Command Prompt sebagai Administrator**:
+    *   Tekan `Win + X` → Pilih "Command Prompt (Admin)" atau "PowerShell (Admin)".
+    *   Atau cari "cmd" → Klik kanan → "Run as administrator".
+2.  **Navigasi ke direktori proyek**:
+    ```cmd
+    cd C:\path\to\pdf_converter
+    ```
+3.  **Instal dependensi**:
+    ```cmd
+    pip install -r requirements.txt
+    ```
+4.  **Jalankan layanan**:
+    ```cmd
+    python app.py
+    ```
+    Layanan akan berjalan di `http://localhost` (Port 80) jika `SERVICE_PORT` di `.env` disetel ke 80 atau tidak disetel.
 
-## Usage Example
+### Opsi 3: Menggunakan Port Berbeda (Tidak Memerlukan Administrator)
 
-### Python requests (Standard)
-```python
-import requests
-import time
+Jika Anda tidak ingin menjalankan sebagai Administrator atau menghadapi masalah Port 80:
 
-# Upload file
-with open('document.docx', 'rb') as f:
-    response = requests.post('http://localhost:8000/convert', 
-                           files={'file': f})
-    conversion_id = response.json()['conversion_id']
-
-# Check status
-while True:
-    status = requests.get(f'http://localhost:8000/status/{conversion_id}').json()
-    if status['status'] == 'completed':
-        break
-    elif status['status'] == 'failed':
-        print(f"Conversion failed: {status.get('error', 'Unknown error')}")
-        break
-    time.sleep(1)
-
-# Download PDF
-pdf_response = requests.get(f'http://localhost:8000/download/{conversion_id}')
-with open('output.pdf', 'wb') as f:
-    f.write(pdf_response.content)
-
-# Cleanup
-requests.delete(f'http://localhost:8000/cleanup/{conversion_id}')
-```
-
-### Python requests (Enhanced API)
-```python
-import requests
-import time
-
-# Upload file with enhanced format
-with open('document.docx', 'rb') as f:
-    data = {
-        'nomor_urut': 'DOC_001_2024',
-        'target_url': 'http://callback.url/webhook'
-    }
-    response = requests.post('http://localhost:8000/convertDua', 
-                           files={'file': f}, data=data)
-    result = response.json()
-    conversion_id = result['conversion_id']
-
-# Check queue status
-queue_status = requests.get('http://localhost:8000/queue/status').json()
-print(f"Queue status: {queue_status['message']}")
-
-# Monitor conversion
-while True:
-    status = requests.get(f'http://localhost:8000/status/{conversion_id}').json()
-    if status['status'] == 'completed':
-        break
-    elif status['status'] == 'failed':
-        print(f"Conversion failed: {status.get('error', 'Unknown error')}")
-        break
-    time.sleep(1)
-
-# Download PDF directly
-pdf_response = requests.get(f'http://localhost:8000/pdf/{conversion_id}')
-with open('output.pdf', 'wb') as f:
-    f.write(pdf_response.content)
-
-# Cleanup
-requests.delete(f'http://localhost:8000/cleanup/{conversion_id}')
-```
-
-### cURL Examples
-
-#### Standard API
-```bash
-# Convert
-curl -X POST -F "file=@document.docx" http://localhost:8000/convert
-
-# Check status
-curl http://localhost:8000/status/your-conversion-id
-
-# Download
-curl -O -J http://localhost:8000/download/your-conversion-id
-
-# Cleanup
-curl -X DELETE http://localhost:8000/cleanup/your-conversion-id
-```
-
-#### Enhanced API
-```bash
-# Convert with metadata
-curl -X POST \
-  -F "file=@document.docx" \
-  -F "nomor_urut=DOC_001_2024" \
-  -F "target_url=http://callback.url/webhook" \
-  http://localhost:8000/convertDua
-
-# Check queue status
-curl http://localhost:8000/queue/status
-
-# Download PDF directly
-curl -O http://localhost:8000/pdf/DOC_001_2024
-
-# Health check
-curl http://localhost:8000/health
-```
-
-## Architecture
-
-```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   FastAPI       │    │   ThreadPool     │    │  LibreOffice    │
-│   (Async API)   │───▶│   (4 workers)    │───▶│   (Primary)     │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-                                │                        │
-                                │                        ▼
-                                │               ┌─────────────────┐
-                                └──────────────▶│   MS Word       │
-                                                │   (Fallback)    │
-                                                └─────────────────┘
-```
-
-## Keunggulan vs Project Lama
-
-| Aspek | Project Lama | Project Baru |
-|-------|-------------|-------------|
-| **Complexity** | 1174 lines | ~300 lines |
-| **Dependencies** | 7 packages | 7 packages |
-| **Primary Engine** | MS Word | LibreOffice |
-| **Fallback** | LibreOffice | MS Word |
-| **Architecture** | Complex validation | Simple & focused |
-| **Error Handling** | Over-engineered | Essential only |
-| **Performance** | Heavy | Lightweight |
-| **Maintenance** | Difficult | Easy |
-
-## Client Application Integration
-
-### Client Configuration
-
-Ubah URL converter service di aplikasi client:
-
-```php
-// Ganti dari:
-$convertUrl = 'http://old-service.com/convertDua';
-
-// Menjadi:
-$convertUrl = 'http://your-server:8000/convertDua';
-```
-
-### Testing Integration
-
-```bash
-# Install dependencies untuk testing
-pip install python-docx requests
-
-# Run integration test
-python test_integration.py
-```
-
-### Docker Deployment
-
-```bash
-# Build dan run dengan Docker
-docker-compose up -d
-
-# Check logs
-docker-compose logs -f pdf-converter
-
-# Stop service
-docker-compose down
-```
+1.  **Edit file `.env`**:
+    Ubah `SERVICE_PORT` ke port yang berbeda, misalnya 8080:
+    ```ini
+    SERVICE_PORT=8080
+    ```
+2.  **Buka Command Prompt atau PowerShell biasa** (tidak perlu Administrator).
+3.  **Navigasi ke direktori proyek**:
+    ```cmd
+    cd C:\path\to\pdf_converter
+    ```
+4.  **Instal dependensi** (jika belum):
+    ```cmd
+    pip install -r requirements.txt
+    ```
+5.  **Jalankan layanan**:
+    ```cmd
+    python app.py
+    ```
+    Aplikasi akan berjalan melalui `http://localhost:8080` (atau port yang Anda tentukan).
 
 ## Troubleshooting
 
-### LibreOffice tidak terdeteksi
-```bash
-# Check instalasi
-libreoffice --version
+### Masalah Port 80
+Port 80 sering digunakan oleh layanan lain:
+*   **Konflik IIS**: Jika IIS (Internet Information Services) berjalan.
+*   **Konflik Skype**: Versi lama Skype.
+*   **Web server lain**: Apache, Nginx, dll.
 
-# Set path manual
-export LIBREOFFICE_PATH="/usr/bin/libreoffice"
+**Periksa Penggunaan Port**:
+```cmd
+netstat -ano | findstr :80
+```
+Ini akan menunjukkan proses apa yang menggunakan Port 80.
+
+**Hentikan Layanan yang Berkonflik**:
+```cmd
+# Hentikan IIS (jika terinstal)
+iisreset /stop
+
+# Atau gunakan Services.msc untuk menghentikan "World Wide Web Publishing Service"
 ```
 
-### Conversion gagal
-- Check log file: `logs/pdf_converter.log`
-- Check error log: `logs/pdf_converter_errors.log`
-- Pastikan file DOCX tidak corrupt
-- Coba dengan file DOCX yang lebih simple
-- Test dengan: `python test_integration.py`
+### "Permission denied" pada Port 80
+*   Pastikan Anda menjalankan aplikasi **sebagai Administrator**.
+*   Atau, gunakan port yang berbeda (misalnya 8080/8000) seperti yang dijelaskan di [Opsi 3](#opsi-3-menggunakan-port-berbeda-tidak-memerlukan-administrator).
 
-### Performance Tuning
-
-#### Worker Optimization
-```bash
-# Check current performance
-curl http://localhost:8000/health
-
-# Monitor worker utilization
-watch -n 2 'curl -s http://localhost:8000/ | jq .worker_utilization'
-
-# System resource monitoring
-htop  # or top
+### "Port already in use"
+*   Gunakan `netstat -ano | findstr :<PORT_NUMBER>` untuk menemukan proses yang menggunakan port tersebut.
+*   Bunuh proses tersebut (ganti PID dengan ID proses aktual):
+    ```cmd
+taskkill /PID <PID_NUMBER> /F
 ```
 
-#### Scaling Guidelines
-- **Increase workers** jika:
-  - Worker utilization > 80%
-  - CPU usage < 80%
-  - Memory usage < 80%
-  - Queue size consistently > 5
+### LibreOffice Tidak Ditemukan
+*   Pastikan LibreOffice terinstal dengan benar.
+*   Jika terinstal di lokasi non-default, tentukan jalurnya di file `.env`:
+    ```ini
+    LIBREOFFICE_PATH=C:\Jalur\ke\LibreOffice\program\soffice.exe
+    ```
 
-- **Decrease workers** jika:
-  - CPU usage > 90%
-  - Memory usage > 90%
-  - Frequent conversion failures
-  - System becomes unresponsive
+## Endpoint API
 
-#### Recommended Settings
-```bash
-# For high-volume production (16+ cores, 32+ GB RAM)
-export MAX_WORKERS=12
-export CONVERSION_TIMEOUT=90
+Berikut adalah beberapa endpoint API utama yang tersedia:
 
-# For medium production (8 cores, 16 GB RAM)
-export MAX_WORKERS=6
-export CONVERSION_TIMEOUT=60
+*   **GET `/`**: Health check dasar.
+*   **POST `/convert`**: Mengunggah file DOCX dan mengkonversinya ke PDF. Memerlukan `file`, `nomor_urut`, dan `target_url` sebagai form data.
+*   **POST `/convertDua`**: Endpoint konversi DOCX ke PDF yang lebih canggih. Memerlukan `file`, `nomor_urut` (opsional), dan `target_url` (opsional) sebagai form data.
+*   **GET `/status/{conversion_id}`**: Mendapatkan status konversi tertentu berdasarkan ID.
+*   **GET `/download/{conversion_id}`**: Mengunduh PDF yang telah dikonversi setelah selesai.
+*   **GET `/pdf/{conversion_id}`**: Mengakses PDF secara langsung.
+*   **DELETE `/cleanup/{conversion_id}`**: Membersihkan file konversi yang sudah selesai.
+*   **GET `/queue/status`**: Mendapatkan status antrean konversi secara keseluruhan.
+*   **GET `/health`**: Health check yang lebih detail dengan informasi sistem.
+*   **GET `/monitor`**: Dashboard pemantauan berbasis web (memerlukan `static/monitor.html`).
 
-# For development/testing (4 cores, 8 GB RAM)
-export MAX_WORKERS=3
-export CONVERSION_TIMEOUT=45
-```
+## Deployment Produksi
 
-### Client Integration Issues
-- Pastikan URL converter service benar
-- Check network connectivity antara client dan converter
-- Monitor logs di kedua service
-- Test endpoint secara manual dengan cURL
+Untuk deployment produksi, pertimbangkan opsi berikut:
 
-## Production Deployment
-
-### Systemd Service
-```bash
-# Copy ke /etc/systemd/system/pdf-converter.service
-[Unit]
-Description=PDF Converter Service
-After=network.target
-
-[Service]
-Type=simple
-User=www-data
-WorkingDirectory=/path/to/pdf_converter
-ExecStart=/usr/bin/python3 app.py
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### Nginx Reverse Proxy
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-    
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        client_max_body_size 50M;
-    }
-}
-```
-
-## Testing
-
-### Manual Testing
-```bash
-# Start service
-python start.py
-
-# Run integration tests
-python test_integration.py
-```
-
-### Load Testing
-```bash
-# Install ab (Apache Bench)
-sudo apt-get install apache2-utils
-
-# Test with multiple concurrent requests
-ab -n 100 -c 10 -T 'multipart/form-data; boundary=1234567890' \
-   -p test_data.txt http://localhost:8000/convertDua
-```
-
-## Monitoring
-
-### Health Checks
-- Health endpoint: `GET /health`
-- Queue status: `GET /queue/status`
-- Service status: `GET /`
-
-### Logs
-- Main log: `logs/pdf_converter.log`
-- Error log: `logs/pdf_converter_errors.log`
-- Access log: Handled by uvicorn
-
-### Metrics
-- Active conversions
-- Queue size
-- Engine availability
-- Processing time
-- Success/failure rates
-
-## License
-
-MIT License - Silakan digunakan dan dimodifikasi sesuai kebutuhan.
+*   **Windows Service**: Gunakan `pywin32` dan alat seperti `nssm` (Non-Sucking Service Manager) untuk menjalankan aplikasi sebagai layanan Windows.
+*   **Task Scheduler**: Konfigurasi Task Scheduler untuk menjalankan aplikasi saat startup.
+*   **IIS Reverse Proxy**: Jika Anda sudah memiliki IIS, Anda dapat mengkonfigurasinya sebagai reverse proxy untuk meneruskan permintaan ke aplikasi Python yang berjalan di port internal.
