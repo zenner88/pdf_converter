@@ -105,6 +105,8 @@ executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 
 # Global conversion status tracking
 conversion_status: Dict[str, Dict[str, Any]] = {}
+conversion_semaphore: Optional[asyncio.Semaphore] = None
+http_client: Optional[httpx.AsyncClient] = None
 
 # Windows-safe file operations
 def safe_remove_file(file_path: str, max_retries: int = 3) -> bool:
@@ -197,23 +199,26 @@ class LibreOfficeEngine(ConversionEngine):
         return self.executable is not None
     
     async def convert(self, input_path: str, output_path: str) -> bool:
-        """Convert using LibreOffice headless"""
+        """Convert using LibreOffice headless with isolated user profile for maximum parallel concurrency"""
         if not self.executable:
             return False
         
+        output_dir = os.path.dirname(output_path)
+        profile_dir = tempfile.mkdtemp(prefix="lo_profile_", dir=TEMP_DIR)
+        profile_uri = Path(profile_dir).as_uri()
+        
         try:
-            output_dir = os.path.dirname(output_path)
-            
-            # LibreOffice command
+            # LibreOffice command dengan UserInstallation terisolasi
             cmd = [
                 self.executable,
+                f'-env:UserInstallation={profile_uri}',
                 '--headless',
                 '--invisible',
                 '--nodefault',
                 '--nolockcheck',
                 '--nologo',
                 '--norestore',
-                '--convert-to', 'pdf',
+                '--convert-to', 'pdf:writer_pdf_Export',
                 '--outdir', output_dir,
                 input_path
             ]
@@ -238,7 +243,7 @@ class LibreOfficeEngine(ConversionEngine):
                     input_name = Path(input_path).stem
                     expected_pdf = os.path.join(output_dir, f"{input_name}.pdf")
                     
-                    if os.path.exists(expected_pdf):
+                    if os.path.exists(expected_pdf) and os.path.getsize(expected_pdf) > 0:
                         if expected_pdf != output_path:
                             shutil.move(expected_pdf, output_path)
                         return True
@@ -247,13 +252,24 @@ class LibreOfficeEngine(ConversionEngine):
                 return False
                 
             except asyncio.TimeoutError:
-                logger.error("LibreOffice conversion timed out")
-                process.kill()
+                logger.error(f"LibreOffice conversion timed out after {CONVERSION_TIMEOUT}s")
+                try:
+                    process.kill()
+                    await process.wait()
+                except Exception:
+                    pass
                 return False
                 
         except Exception as e:
             logger.error(f"LibreOffice conversion error: {e}")
             return False
+        finally:
+            # Cleanup temporary LibreOffice user profile
+            try:
+                shutil.rmtree(profile_dir, ignore_errors=True)
+            except Exception:
+                pass
+
 
 
 class MSWordEngine(ConversionEngine):
@@ -380,15 +396,25 @@ async def cleanup_old_conversions():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifespan events"""
+    global conversion_semaphore, http_client
+    conversion_semaphore = asyncio.Semaphore(MAX_WORKERS)
+    http_client = httpx.AsyncClient(
+        timeout=httpx.Timeout(90.0, connect=15.0),
+        limits=httpx.Limits(max_keepalive_connections=20, max_connections=100)
+    )
+    
     # Startup
     asyncio.create_task(cleanup_old_conversions())
     logger.info("PDF Converter service started")
     logger.info(f"Available conversion engines: {[engine.name for engine in available_engines]}")
+    logger.info(f"Worker concurrency active: max {MAX_WORKERS} simultaneous conversions")
     
     yield
     
     # Shutdown
     logger.info("PDF Converter service shutting down")
+    if http_client and not http_client.is_closed:
+        await http_client.aclose()
     # Clean up any remaining files
     for status in conversion_status.values():
         for path in [status.get("input_path"), status.get("output_path")]:
@@ -400,7 +426,7 @@ app.router.lifespan_context = lifespan
 
 
 async def upload_pdf_to_target(conversion_id: str, pdf_path: str) -> bool:
-    """Upload PDF file to target URL"""
+    """Upload PDF file to target URL using shared connection pool"""
     try:
         if conversion_id not in conversion_status:
             logger.error(f"Conversion status not found for {conversion_id}")
@@ -415,7 +441,6 @@ async def upload_pdf_to_target(conversion_id: str, pdf_path: str) -> bool:
             return False
             
         # Determine endpoint based on original request
-        # Check if this was from /convertDua endpoint (has endpoint_type field)
         endpoint_type = status.get("endpoint_type", "convert")  # default to convert
         
         if endpoint_type == "convertDua":
@@ -428,25 +453,28 @@ async def upload_pdf_to_target(conversion_id: str, pdf_path: str) -> bool:
         # Upload with retry logic
         max_retries = 3
         retry_delay = 1
+        resp = None
         
         for attempt in range(max_retries + 1):
             try:
                 timeout_config = httpx.Timeout(90.0, connect=15.0)
+                file_size = os.path.getsize(pdf_path)
+                logger.info(f"Attempt {attempt + 1}/{max_retries + 1} - Uploading PDF size: {file_size} bytes")
                 
-                async with httpx.AsyncClient(timeout=timeout_config) as client:
-                    with open(pdf_path, "rb") as fpdf:
-                        file_size = os.path.getsize(pdf_path)
-                        logger.info(f"Attempt {attempt + 1}/{max_retries + 1} - Uploading PDF size: {file_size} bytes")
-                        
-                        files = {"docupload": (os.path.basename(pdf_path), fpdf, "application/pdf")}
-                        headers = {"User-Agent": "FastAPI-PDF-Converter/1.0"}
-                        data = {"overwrite": "true", "force_replace": "1"}
-                        
-                        resp = await client.post(post_url, files=files, headers=headers, data=data)
-                        
-                        # If success or not server error, break from retry loop
-                        if resp.status_code < 500:
-                            break
+                with open(pdf_path, "rb") as fpdf:
+                    files = {"docupload": (os.path.basename(pdf_path), fpdf, "application/pdf")}
+                    headers = {"User-Agent": "FastAPI-PDF-Converter/1.0"}
+                    data = {"overwrite": "true", "force_replace": "1"}
+                    
+                    if http_client and not http_client.is_closed:
+                        resp = await http_client.post(post_url, files=files, headers=headers, data=data)
+                    else:
+                        async with httpx.AsyncClient(timeout=timeout_config) as client:
+                            resp = await client.post(post_url, files=files, headers=headers, data=data)
+                    
+                    # If success or not server error, break from retry loop
+                    if resp.status_code < 500:
+                        break
                             
             except (httpx.HTTPError, httpx.TimeoutException) as e:
                 logger.warning(f"Upload attempt {attempt + 1} failed: {e}")
@@ -489,8 +517,16 @@ async def upload_pdf_to_target(conversion_id: str, pdf_path: str) -> bool:
 
 
 async def convert_file(input_path: str, output_path: str, conversion_id: str) -> bool:
-    """Convert DOCX to PDF using available engines"""
-    
+    """Convert DOCX to PDF using available engines with worker concurrency throttling"""
+    if conversion_semaphore is not None:
+        async with conversion_semaphore:
+            return await _exec_convert_file(input_path, output_path, conversion_id)
+    else:
+        return await _exec_convert_file(input_path, output_path, conversion_id)
+
+
+async def _exec_convert_file(input_path: str, output_path: str, conversion_id: str) -> bool:
+    """Internal conversion executor"""
     conversion_status[conversion_id]["status"] = "processing"
     conversion_status[conversion_id]["start_time"] = datetime.now()
     
@@ -522,12 +558,9 @@ async def convert_file(input_path: str, output_path: str, conversion_id: str) ->
                     
                     # Cleanup files after successful upload
                     try:
-                        if os.path.exists(input_path):
-                            os.remove(input_path)
-                            logger.info(f"Deleted input file: {input_path}")
-                        if os.path.exists(output_path):
-                            os.remove(output_path)
-                            logger.info(f"Deleted output file: {output_path}")
+                        safe_remove_file(input_path)
+                        safe_remove_file(output_path)
+                        logger.info(f"Deleted temp files for: {conversion_id}")
                     except Exception as e:
                         logger.warning(f"Failed to cleanup files for {conversion_id}: {e}")
                 else:
